@@ -19,7 +19,30 @@ export async function mockMongoDb(): Promise<IMockMongo> {
   const mongo = await MongoClient.connect(uri);
 
   const disconnect = async (): Promise<void> => {
-    await Promise.all([mongod.stop().then(() => log('mongod stopped')), mongo.close()]);
+    try {
+      // Close mongo client first
+      if (mongo) {
+        await mongo.close();
+        log('mongo client closed');
+      }
+    } catch (error) {
+      // Ignore connection pool errors during cleanup
+      if (error instanceof Error && !error.message?.includes('MongoPoolClosedError')) {
+        log('error closing mongo client:', error.message);
+      }
+    }
+
+    try {
+      // Stop mongod server
+      if (mongod) {
+        await mongod.stop();
+        log('mongod stopped');
+      }
+    } catch (error) {
+      if (error instanceof Error) {
+        log('error stopping mongod:', error.message);
+      }
+    }
   };
 
   const self: IMockMongo = {

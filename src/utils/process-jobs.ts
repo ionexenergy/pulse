@@ -248,8 +248,25 @@ export const processJobs = async function (this: Pulse, extraJob: Job): Promise<
     } else {
       // @ts-expect-error linter complains about Date-arithmetic
       const runIn = job.attrs.nextRunAt - now;
-      debug('[%s:%s] nextRunAt is in the future, calling setTimeout(%d)', job.attrs.name, job.attrs._id, runIn);
-      setTimeout(jobProcessing, runIn);
+
+      // JavaScript's setTimeout has a maximum value of 2^31 - 1 milliseconds (approximately 24.8 days)
+      // If the delay exceeds this limit, setTimeout behaves unpredictably
+      const MAX_TIMEOUT = Math.pow(2, 31) - 1;
+
+      if (runIn > MAX_TIMEOUT) {
+        // For jobs scheduled beyond the setTimeout limit, use a shorter timeout and re-check periodically
+        const checkInterval = Math.min(MAX_TIMEOUT, 24 * 60 * 60 * 1000); // Check every 24 hours or at the limit
+        debug('[%s:%s] nextRunAt exceeds setTimeout limit (%d > %d), scheduling periodic check in %d ms',
+              job.attrs.name, job.attrs._id, runIn, MAX_TIMEOUT, checkInterval);
+
+        setTimeout(() => {
+          // Re-enqueue the job for processing, which will re-evaluate the timing
+          enqueueJobs(job);
+        }, checkInterval);
+      } else {
+        debug('[%s:%s] nextRunAt is in the future, calling setTimeout(%d)', job.attrs.name, job.attrs._id, runIn);
+        setTimeout(jobProcessing, runIn);
+      }
     }
 
     /**
